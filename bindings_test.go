@@ -785,9 +785,10 @@ func TestCursorKeepsQuery(t *testing.T) {
 
 func TestQueryMatch_satisfiesTextPredicates(t *testing.T) {
 	testCases := []struct {
-		input    string
-		query    string
-		expected bool
+		input               string
+		query               string
+		expected            bool
+		sameResultOnInverse bool
 	}{
 		{
 			input: `// foo`,
@@ -843,6 +844,46 @@ func TestQueryMatch_satisfiesTextPredicates(t *testing.T) {
 		)`,
 			expected: true,
 		},
+		{
+			input: `
+			// foo
+			
+			// bar
+			
+			// baz
+			`,
+			query: `(
+		(comment) @capture1 (#match? @capture1 "^// foo")
+		(comment) @capture2 (#match? @capture2 "^// bar$")
+		(comment) @capture3 (#eq? @capture3 "// baz")
+		)`,
+			expected: true,
+		},
+		{
+			input: `
+			// foo
+			
+			// bar
+			`,
+			query: `(
+		(comment) @capture1 (#match? @capture1 "^// foo$")
+		(comment) @capture2 (#match? @capture2 "^// bar$")
+		)`,
+			expected: true,
+		},
+		{
+			input: `
+			// foo
+			
+			// bar
+			`,
+			query: `(
+		(comment) @capture1 (#match? @capture1 "^// foo$")
+		(comment) @capture2 (#match? @capture2 "^// not_bar$")
+		)`,
+			expected:            false,
+			sameResultOnInverse: true,
+		},
 	}
 
 	parser := NewParser()
@@ -865,7 +906,11 @@ func TestQueryMatch_satisfiesTextPredicates(t *testing.T) {
 		// Repeat query by inverting the predicate and expectation
 		inverseQuery := strings.ReplaceAll(testCase.query, "#match?", "#not-match?")
 		inverseQuery = strings.ReplaceAll(inverseQuery, "#eq?", "#not-eq?")
-		expected := !testCase.expected
+
+		expected := testCase.expected
+		if !testCase.sameResultOnInverse {
+			expected = !testCase.expected
+		}
 
 		q, _ = NewQuery([]byte(inverseQuery), getTestGrammar())
 		qc = NewQueryCursor()
