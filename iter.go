@@ -1,7 +1,5 @@
 package sitter
 
-import "io"
-
 type IterMode int
 
 const (
@@ -9,71 +7,89 @@ const (
 	BFSMode
 )
 
-// Iterator for a tree of nodes
-type Iterator struct {
+// treeIterator for a tree of nodes
+type treeIterator struct {
 	named bool
 	mode  IterMode
 
 	nodesToVisit []*Node
 }
 
-// NewIterator takes a node and mode (DFS/BFS) and returns iterator over children of the node
-func NewIterator(n *Node, mode IterMode) *Iterator {
-	return &Iterator{
-		named:        false,
+// TreeIterator takes a node and mode (DFS/BFS) and returns iterator over children of the node.
+// named determines whether to iterate over only named children
+func TreeIterator(n *Node, mode IterMode, named bool) func(func(*Node) bool) {
+	iter := &treeIterator{
+		named:        named,
 		mode:         mode,
 		nodesToVisit: []*Node{n},
 	}
+	return iter.Next
 }
 
-// NewNamedIterator takes a node and mode (DFS/BFS) and returns iterator over named children of the node
-func NewNamedIterator(n *Node, mode IterMode) *Iterator {
-	return &Iterator{
-		named:        true,
-		mode:         mode,
-		nodesToVisit: []*Node{n},
-	}
-}
-
-func (iter *Iterator) Next() (*Node, error) {
-	if len(iter.nodesToVisit) == 0 {
-		return nil, io.EOF
-	}
-
-	var n *Node
-	n, iter.nodesToVisit = iter.nodesToVisit[0], iter.nodesToVisit[1:]
-
-	var children []*Node
-	if iter.named {
-		for i := 0; i < int(n.NamedChildCount()); i++ {
-			children = append(children, n.NamedChild(i))
+func (iter *treeIterator) Next(yield func(*Node) bool) {
+	for len(iter.nodesToVisit) > 0 {
+		current := iter.nodesToVisit[0]
+		iter.nodesToVisit = iter.nodesToVisit[1:]
+		if !yield(current) {
+			return
 		}
-	} else {
-		for i := 0; i < int(n.ChildCount()); i++ {
-			children = append(children, n.Child(i))
+		var children []*Node
+		if iter.named {
+			for i := 0; i < int(current.NamedChildCount()); i++ {
+				children = append(children, current.NamedChild(i))
+			}
+		} else {
+			for i := 0; i < int(current.ChildCount()); i++ {
+				children = append(children, current.Child(i))
+			}
+		}
+
+		switch iter.mode {
+		case DFSMode:
+			iter.nodesToVisit = append(children, iter.nodesToVisit...)
+		case BFSMode:
+			iter.nodesToVisit = append(iter.nodesToVisit, children...)
+		default:
+			panic("not implemented")
 		}
 	}
-
-	switch iter.mode {
-	case DFSMode:
-		iter.nodesToVisit = append(children, iter.nodesToVisit...)
-	case BFSMode:
-		iter.nodesToVisit = append(iter.nodesToVisit, children...)
-	default:
-		panic("not implemented")
-	}
-	return n, nil
 }
 
-func (iter *Iterator) ForEach(fn func(*Node) error) error {
+type queryIterator struct {
+	root     *Node
+	captures map[uint32]string
+	cursor   *QueryCursor
+}
+
+func QueryIterator(root *Node, query *Query) func(func(map[string]*Node) bool) {
+	cursor := NewQueryCursor()
+	cursor.Exec(query, root)
+	captures := make(map[uint32]string)
+	for i := uint32(0); i < query.CaptureCount(); i++ {
+		captures[i] = query.CaptureNameForId(i)
+	}
+	iter := &queryIterator{
+		root:     root,
+		captures: captures,
+		cursor:   cursor,
+	}
+	return iter.Next
+}
+
+func (iter *queryIterator) Next(yield func(map[string]*Node) bool) {
 	for {
-		n, err := iter.Next()
-		if err != nil {
-			return err
+		match, found := iter.cursor.NextMatch()
+		if !found {
+			return
 		}
-		err = fn(n)
-		if err != nil {
-			return err
+		results := make(map[string]*Node)
+
+		for _, capture := range match.Captures {
+			results[iter.captures[capture.Index]] = capture.Node
+		}
+
+		if !yield(results) {
+			return
 		}
 	}
 }
