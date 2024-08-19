@@ -11,9 +11,14 @@ const (
 	BFSMode
 )
 
+type (
+	TreeIter  func(yield func(*Node) bool)
+	QueryIter func(yield func(map[string]*Node) bool)
+)
+
 // TreeIterator takes a node and mode (DFS/BFS) and returns iterator over children of the node.
 // named determines whether to iterate over only named children
-func TreeIterator(n *Node, mode IterMode, named bool) func(func(*Node) bool) {
+func TreeIterator(n *Node, mode IterMode, named bool) TreeIter {
 	return func(yield func(*Node) bool) {
 		nodesToVisit := []*Node{n}
 		var current *Node
@@ -42,7 +47,7 @@ func TreeIterator(n *Node, mode IterMode, named bool) func(func(*Node) bool) {
 	}
 }
 
-func QueryIterator(root *Node, query *Query) func(func(map[string]*Node) bool) {
+func QueryIterator(root *Node, query *Query) QueryIter {
 	return func(yield func(map[string]*Node) bool) {
 		cursor := NewQueryCursor()
 		cursor.Exec(query, root)
@@ -56,7 +61,7 @@ func QueryIterator(root *Node, query *Query) func(func(map[string]*Node) bool) {
 			if !found {
 				return
 			}
-			results := make(map[string]*Node)
+			results := make(map[string]*Node, len(match.Captures))
 
 			for _, capture := range match.Captures {
 				results[captures[capture.Index]] = capture.Node
